@@ -6,13 +6,17 @@ import {
   updateGame,
   deleteGame,
 } from '../controllers/gamesController.js';
+import { verifyToken, isAdmin } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
+// Rutas públicas
 router.get('/', getAllGames);
 router.get('/:id', getGameById);
-router.post('/', createGame);
-router.put('/:id', updateGame);
-router.delete('/:id', deleteGame);
+
+// Rutas protegidas (solo admin)
+router.post('/', verifyToken, isAdmin, createGame);
+router.put('/:id', verifyToken, isAdmin, updateGame);
+router.delete('/:id', verifyToken, isAdmin, deleteGame);
 
 export default router;

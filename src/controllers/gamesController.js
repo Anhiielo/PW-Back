@@ -1,120 +1,181 @@
-import { games, users } from '../data/mockData.js';
-
-// Estado en memoria (persiste mientras el servidor esté corriendo)
-let gamesDB = [...games];
-let usersDB = [...users];
+import { Game, Order, OrderItem } from '../models/index.js';
+import sequelize from '../config/database.js';
+import { Op } from 'sequelize';
 
 // ─── GAMES ────────────────────────────────────────────────────────────────────
 
-export const getAllGames = (req, res) => {
-  const { platform, category, search, minPrice, maxPrice } = req.query;
+export const getAllGames = async (req, res) => {
+  try {
+    const { platform, category, search, minPrice, maxPrice } = req.query;
 
-  let result = [...gamesDB];
+    const where = {};
 
-  if (platform && platform !== 'all') {
-    result = result.filter(g => g.platform === platform);
-  }
-  if (category && category !== 'all') {
-    result = result.filter(g => g.category === category);
-  }
-  if (search) {
-    const q = search.toLowerCase();
-    result = result.filter(g =>
-      g.title.toLowerCase().includes(q) ||
-      (g.category && g.category.toLowerCase().includes(q)) ||
-      (g.description && g.description.toLowerCase().includes(q))
-    );
-  }
-  if (minPrice) result = result.filter(g => g.price >= parseFloat(minPrice));
-  if (maxPrice) result = result.filter(g => g.price <= parseFloat(maxPrice));
+    if (platform && platform !== 'all') {
+      where.platform = platform;
+    }
+    if (category && category !== 'all') {
+      where.category = category;
+    }
+    if (search) {
+      where[Op.or] = [
+        { title: { [Op.iLike]: `%${search}%` } },
+        { category: { [Op.iLike]: `%${search}%` } },
+        { description: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+    if (minPrice) {
+      where.price = { ...(where.price || {}), [Op.gte]: parseFloat(minPrice) };
+    }
+    if (maxPrice) {
+      where.price = { ...(where.price || {}), [Op.lte]: parseFloat(maxPrice) };
+    }
 
-  res.json(result);
+    const games = await Game.findAll({ where, order: [['id', 'ASC']] });
+
+    // Mapear image_url a imageUrl y convertir price a número (pg devuelve DECIMAL como string)
+    const result = games.map(g => {
+      const plain = g.toJSON();
+      return { ...plain, imageUrl: plain.image_url, price: parseFloat(plain.price) };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error al obtener juegos:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
 };
 
-export const getGameById = (req, res) => {
-  const game = gamesDB.find(g => g.id === parseInt(req.params.id));
-  if (!game) return res.status(404).json({ message: 'Juego no encontrado.' });
-  res.json(game);
-};
+export const getGameById = async (req, res) => {
+  try {
+    const game = await Game.findByPk(req.params.id);
+    if (!game) return res.status(404).json({ message: 'Juego no encontrado.' });
 
-export const createGame = (req, res) => {
-  const { title, platform, price, description, imageUrl, category } = req.body;
-  if (!title || !price) {
-    return res.status(400).json({ message: 'Título y precio son requeridos.' });
+    const plain = game.toJSON();
+    res.json({ ...plain, imageUrl: plain.image_url, price: parseFloat(plain.price) });
+  } catch (error) {
+    console.error('Error al obtener juego:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
-  const newGame = {
-    id: Date.now(),
-    title,
-    platform: platform || 'PC',
-    price: parseFloat(price),
-    description: description || 'Sin descripción',
-    imageUrl: imageUrl || `https://placehold.co/600x900/1e293b/ffffff?text=${encodeURIComponent(title)}`,
-    category: category || 'Sin categoría',
-  };
-  gamesDB.unshift(newGame);
-  res.status(201).json(newGame);
 };
 
-export const updateGame = (req, res) => {
-  const id = parseInt(req.params.id);
-  const index = gamesDB.findIndex(g => g.id === id);
-  if (index === -1) return res.status(404).json({ message: 'Juego no encontrado.' });
+export const createGame = async (req, res) => {
+  try {
+    const { title, platform, price, description, imageUrl, category, stock } = req.body;
+    if (!title || !price) {
+      return res.status(400).json({ message: 'Título y precio son requeridos.' });
+    }
 
-  const { title, platform, price, description, imageUrl, category } = req.body;
-  gamesDB[index] = {
-    ...gamesDB[index],
-    title: title ?? gamesDB[index].title,
-    platform: platform ?? gamesDB[index].platform,
-    price: price !== undefined ? parseFloat(price) : gamesDB[index].price,
-    description: description ?? gamesDB[index].description,
-    imageUrl: imageUrl ?? gamesDB[index].imageUrl,
-    category: category ?? gamesDB[index].category,
-  };
+    const newGame = await Game.create({
+      title,
+      platform: platform || 'PC',
+      price: parseFloat(price),
+      description: description || 'Sin descripción',
+      image_url: imageUrl || `https://placehold.co/600x900/1e293b/ffffff?text=${encodeURIComponent(title)}`,
+      category: category || 'Sin categoría',
+      stock: stock !== undefined ? parseInt(stock) : 10,
+    });
 
-  res.json(gamesDB[index]);
-};
-
-export const deleteGame = (req, res) => {
-  const id = parseInt(req.params.id);
-  const index = gamesDB.findIndex(g => g.id === id);
-  if (index === -1) return res.status(404).json({ message: 'Juego no encontrado.' });
-  gamesDB.splice(index, 1);
-  res.json({ message: 'Juego eliminado correctamente.' });
-};
-
-// ─── AUTH ─────────────────────────────────────────────────────────────────────
-
-export const login = (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Email y contraseña son requeridos.' });
+    const plain = newGame.toJSON();
+    res.status(201).json({ ...plain, imageUrl: plain.image_url, price: parseFloat(plain.price) });
+  } catch (error) {
+    console.error('Error al crear juego:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
+};
 
-  const user = usersDB.find(u => u.email === email && u.password === password);
-  if (!user) {
-    return res.status(401).json({ message: 'Credenciales incorrectas.' });
+export const updateGame = async (req, res) => {
+  try {
+    const game = await Game.findByPk(req.params.id);
+    if (!game) return res.status(404).json({ message: 'Juego no encontrado.' });
+
+    const { title, platform, price, description, imageUrl, category, stock } = req.body;
+
+    await game.update({
+      title: title ?? game.title,
+      platform: platform ?? game.platform,
+      price: price !== undefined ? parseFloat(price) : game.price,
+      description: description ?? game.description,
+      image_url: imageUrl ?? game.image_url,
+      category: category ?? game.category,
+      stock: stock !== undefined ? parseInt(stock) : game.stock,
+    });
+
+    const plain = game.toJSON();
+    res.json({ ...plain, imageUrl: plain.image_url, price: parseFloat(plain.price) });
+  } catch (error) {
+    console.error('Error al actualizar juego:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
+};
 
-  const { password: _, ...userSafe } = user;
-  res.json({ user: userSafe });
+export const deleteGame = async (req, res) => {
+  try {
+    const game = await Game.findByPk(req.params.id);
+    if (!game) return res.status(404).json({ message: 'Juego no encontrado.' });
+
+    await game.destroy();
+    res.json({ message: 'Juego eliminado correctamente.' });
+  } catch (error) {
+    console.error('Error al eliminar juego:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
 };
 
 // ─── CHECKOUT ─────────────────────────────────────────────────────────────────
 
-export const checkout = (req, res) => {
-  const { items } = req.body;
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ message: 'El carrito está vacío.' });
+export const checkout = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { items } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'El carrito está vacío.' });
+    }
+
+    // Calcular total
+    const total = items.reduce((sum, item) => sum + parseFloat(item.price || 0), 0);
+
+    // Crear la orden asociada al usuario autenticado
+    const order = await Order.create({
+      user_id: req.user.id,
+      total,
+      status: 'COMPLETED',
+    }, { transaction });
+
+    // Crear los items con sus keys generadas
+    const orderItems = [];
+    for (const item of items) {
+      const randomKey = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const keyGenerated = `${randomKey.slice(0, 4)}-${randomKey.slice(4, 8)}`;
+
+      const orderItem = await OrderItem.create({
+        order_id: order.id,
+        game_id: item.id,
+        price: parseFloat(item.price || 0),
+        quantity: 1,
+        key_generated: keyGenerated,
+      }, { transaction });
+
+      // Reducir stock del juego
+      await Game.decrement('stock', {
+        by: 1,
+        where: { id: item.id },
+        transaction,
+      });
+
+      orderItems.push({
+        ...item,
+        keyGenerated,
+        purchaseDate: new Date().toLocaleDateString('es-PE'),
+      });
+    }
+
+    await transaction.commit();
+
+    res.json({ success: true, purchasedItems: orderItems });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error en checkout:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
-
-  const itemsWithKeys = items.map(item => {
-    const randomKey = Math.random().toString(36).substring(2, 10).toUpperCase();
-    return {
-      ...item,
-      keyGenerated: `${randomKey.slice(0, 4)}-${randomKey.slice(4, 8)}`,
-      purchaseDate: new Date().toLocaleDateString('es-PE'),
-    };
-  });
-
-  res.json({ success: true, purchasedItems: itemsWithKeys });
 };
