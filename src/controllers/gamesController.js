@@ -179,3 +179,39 @@ export const checkout = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
+
+// ─── LIBRARY ──────────────────────────────────────────────────────────────────
+
+export const getLibrary = async (req, res) => {
+  try {
+    const orders = await Order.findAll({
+      where: { user_id: req.user.id },
+      include: [
+        {
+          model: OrderItem,
+          as: 'items',
+          include: [{ model: Game, as: 'game' }]
+        }
+      ]
+    });
+
+    const purchasedKeys = [];
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        purchasedKeys.push({
+          id: item.game.id,
+          title: item.game.title,
+          platform: item.game.platform,
+          imageUrl: item.game.image_url,
+          keyGenerated: item.key_generated,
+          purchaseDate: new Date(order.created_at).toLocaleDateString('es-PE'),
+        });
+      });
+    });
+
+    res.json(purchasedKeys);
+  } catch (error) {
+    console.error('Error al obtener la biblioteca:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
