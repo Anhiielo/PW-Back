@@ -204,7 +204,7 @@ export const getLibrary = async (req, res) => {
           platform: item.game.platform,
           imageUrl: item.game.image_url,
           keyGenerated: item.key_generated,
-          purchaseDate: new Date(order.created_at).toLocaleDateString('es-PE'),
+          purchaseDate: new Date(order.createdAt || order.created_at).toLocaleDateString('es-PE'),
         });
       });
     });
