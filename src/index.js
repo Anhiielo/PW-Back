@@ -10,10 +10,11 @@ import checkoutRouter from './routes/checkout.js';
 const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const allowedOrigins = FRONTEND_URL.split(',').map(url => url.trim());
 
 // ─── Middlewares ───────────────────────────────────────────────────────────────
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
